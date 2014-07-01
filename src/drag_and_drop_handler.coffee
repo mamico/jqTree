@@ -299,9 +299,9 @@ class VisibleNodeIterator
 
 
 class HitAreasGenerator extends VisibleNodeIterator
-    constructor: (tree, current_node, tree_bottom) ->
+    constructor: (tree, current_node, tree_bottom, group_size_max) ->
         super(tree)
-
+        @group_size_max = group_size_max ? group_size_max : 4
         @current_node = current_node
         @tree_bottom = tree_bottom
 
@@ -415,7 +415,7 @@ class HitAreasGenerator extends VisibleNodeIterator
 
     generateHitAreasForGroup: (hit_areas, positions_in_group, top, bottom) ->
         # limit positions in group
-        position_count = Math.min(positions_in_group.length, 4)
+        position_count = Math.min(positions_in_group.length, @group_size_max)
 
         area_height = Math.round((bottom - top) / position_count)
         area_top = top
