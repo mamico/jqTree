@@ -2588,9 +2588,7 @@ limitations under the License.
 
     function HitAreasGenerator(tree, current_node, tree_bottom, group_size_max) {
       HitAreasGenerator.__super__.constructor.call(this, tree);
-      this.group_size_max = group_size_max != null ? group_size_max : {
-        group_size_max: 4
-      };
+      this.group_size_max = group_size_max || 4;
       this.current_node = current_node;
       this.tree_bottom = tree_bottom;
     }

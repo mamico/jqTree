@@ -301,7 +301,7 @@ class VisibleNodeIterator
 class HitAreasGenerator extends VisibleNodeIterator
     constructor: (tree, current_node, tree_bottom, group_size_max) ->
         super(tree)
-        @group_size_max = group_size_max ? group_size_max : 4
+        @group_size_max = group_size_max or 4
         @current_node = current_node
         @tree_bottom = tree_bottom
 
