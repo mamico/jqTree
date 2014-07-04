@@ -1,69 +1,36 @@
-class DragAndDropBoxHandler extends DragAndDropHandler
+class DragAndDropBoxHandler extends BaseDragAndDropHandler
     constructor: (tree_widget) ->
-        @tree_widget = tree_widget
-        @hovered_area = null
-        @$ghost = null
-        @hit_areas = []
-        @is_dragging = false
-        @current_item = null
+        super(tree_widget)
+
         @dragging_cursor = null
         @previousY = null
         @previousX = null
 
-    mouseStart: (position_info) ->
-
-        offset = $(position_info.target).offset()
-
+    doMouseStart: (x, y) ->
         @dragging_cursor = new DraggingCursor(@current_item, Position.NONE)
 
-         #create a drag box element from the element being dragged
         @drag_element = new DragBoxElement(
-            @current_item.$element
-            position_info.page_x - offset.left,
-            position_info.page_y - offset.top,
-            @tree_widget.element
+            @current_item.$element, x, y, @tree_widget.element
         )
 
         @dragging_cursor.swapGhost()
-
-        @refresh()
-
-        @is_dragging = true
-        return true
-
-    printHitAreas: ->
-        for hit_area in @hit_areas
-            console.log(hit_area.top, hit_area.bottom, hit_area.node.name, @convertPosition(hit_area.position), hit_area.depth)
-
-    convertPosition: (position) ->
-        switch position
-            when 1
-                return "BEFORE"
-            when 2
-                return "AFTER"
-            when 3
-                return "INSIDE"
-            when 4
-                return "NONE"
 
     resetHorizontal: (current_x) ->
         @previousX = current_x
         @horizontal_options = null
 
     mouseStop: (position_info) ->
+        return
         if !@hovered_area || @hovered_area.position == Position.NONE
             @dragging_cursor.unSwapGhost()
             @tree_widget._refreshElements()
         else
             @moveItem(position_info)
+
         @clear()
         @removeHover()
         @removeDropHint()
         @removeHitAreas()
-
-        if @current_item
-            @current_item.$element.removeClass('jqtree-moving')
-            @current_item = null
 
         @is_dragging = false
         return false
@@ -74,6 +41,7 @@ class DragAndDropBoxHandler extends DragAndDropHandler
         [horizontal_direction, vertical_direction] = @getCurrentDirections(current_x, current_y)
         @drag_element.move(current_x, current_y)
         leaving = @leavingCursorVertically(current_y)
+
         #vertically leaving the cursor takes precedence over horizontal nesting
         if leaving && vertical_direction && leaving == vertical_direction
             @hovered_area = @findAreaWhenLeaving(vertical_direction)
@@ -89,9 +57,8 @@ class DragAndDropBoxHandler extends DragAndDropHandler
         else if horizontal_direction == DragAndDropBoxHandler.LEFT
             @leftMove()
 
-
     getCurrentDirections: (current_x, current_y) ->
-        if (@previousY == null)
+        if @previousY == null
             vertical_direction = DragAndDropBoxHandler.NEUTRAL
         else if (@previousY > current_y)
             vertical_direction = DragAndDropBoxHandler.UP
@@ -100,7 +67,7 @@ class DragAndDropBoxHandler extends DragAndDropHandler
 
         @previousY = current_y
 
-        if (@previousX == null)
+        if @previousX == null
             horizontal_direction = DragAndDropBoxHandler.NEUTRAL
             @previousX = current_x
         else if (current_x > (@previousX + 20))
@@ -127,7 +94,6 @@ class DragAndDropBoxHandler extends DragAndDropHandler
     getRightMoveArea: () ->
         if !@horizontal_options
             @horizontal_options = @generateHorizontalMoveOptions()
-        #@horizontal_options.print()
 
         if @horizontal_options.hasRight()
             right = @horizontal_options.shiftRight()
@@ -145,7 +111,7 @@ class DragAndDropBoxHandler extends DragAndDropHandler
     getLeftMoveArea: () ->
         if !@horizontal_options
             @horizontal_options = @generateHorizontalMoveOptions()
-        #@horizontal_options.print()
+
         if @horizontal_options.hasLeft()
             left = @horizontal_options.shiftLeft()
             return left
@@ -179,7 +145,7 @@ class DragAndDropBoxHandler extends DragAndDropHandler
                 previous = @hit_areas[index]
             options.rightPush(previous)
 
-       #get areas to left
+        #get areas to left
         index = @hit_areas.lastIndexOf(current)
         index++
         next = @hit_areas[index]
@@ -211,8 +177,8 @@ class DragAndDropBoxHandler extends DragAndDropHandler
         [area, index]
 
     clear: ->
-        @drag_element.remove()
-        @drag_element = null
+        super()
+
         @dragging_cursor.remove()
         @dragging_cursor = null
         @previousX = null
@@ -271,9 +237,6 @@ class DragAndDropBoxHandler extends DragAndDropHandler
         return DragAndDropBoxHandler.UP  if y < top - buffer
         return false
 
-    refresh: ->
-        @removeHitAreas()
-        @generateHitAreas()
 
 DragAndDropBoxHandler.UP = 1
 DragAndDropBoxHandler.DOWN = -1
@@ -297,30 +260,19 @@ class DragBoxElement extends DragElement
 class BoxAreasGenerator extends HitAreasGenerator
     constructor: (tree, current_node, tree_bottom, cursor, group_size_max) ->
         group_size_max ?= 12
+
         super(tree, current_node, tree_bottom, group_size_max)
+
         @cursor = cursor
         @current_node = current_node
         @tree_bottom = tree_bottom
 
     generate: ->
-        @positions = []
-        @last_top = 0
+        hit_areas = super()
 
-        @iterate()
-
-        hit_areas = @generateHitAreas(@positions)
         @addCursor(hit_areas)
+
         return hit_areas
-
-    addPosition: (node, position, top) ->
-        area = {
-            top: top
-            node: node
-            position: position
-        }
-
-        @positions.push(area)
-        @last_top = top
 
     handleNode: (node, next_node, $element) ->
         top = @getTop($element)
@@ -379,7 +331,7 @@ class DraggingCursor
         @$element = element.$element
         @node = element.node
         height = @$element.height()
-        @$ghost = $('<li style = "height:'+height+'px;" class="jqtree_common jqtree-ghost"></li>')
+        @$ghost = $('<li style = "height:'+height+'px;" class="jqtree_common jqtree-ghost jqtree-box-ghost"></li>')
 
     swapGhost: ->
         @$element.replaceWith(@$ghost)
@@ -413,17 +365,18 @@ class DraggingCursor
 
     bump: ->
         @bumped = true
-        @$ghost.addClass('bumped')
+        @$ghost.addClass('jqtree-bumped')
 
     deBump: ->
         @bumped = false
-        @$ghost.removeClass('bumped')
+        @$ghost.removeClass('jqtree-bumped')
 
     remove: ->
         @$ghost.remove()
 
     inCursor: (area) ->
         return false unless area
+
         offset = @$ghost.offset()
         top = offset.top
         bottom = @$ghost.height() + top
@@ -431,9 +384,8 @@ class DraggingCursor
         area.top >= top && area.top < bottom && (left <= $(area.node.element).offset().left)
 
 
-
 class HorizontalOptions
-    constructor: () ->
+    constructor: ->
         @right_arr = []
         @left_arr = []
         @current = null
@@ -441,7 +393,7 @@ class HorizontalOptions
     setCurrent: (area) ->
         @current = area
 
-    shiftLeft: () ->
+    shiftLeft: ->
         if @hasLeft
             new_current_item = @left_arr.shift()
             @right_arr.unshift(@current)
@@ -450,7 +402,7 @@ class HorizontalOptions
         else
             return false
 
-    shiftRight: () ->
+    shiftRight: ->
         if @hasRight
             new_current_item = @right_arr.shift()
             @left_arr.unshift(@current)
@@ -465,21 +417,8 @@ class HorizontalOptions
     leftPush: (area) ->
         @left_arr.push(area)
 
-    hasLeft: () ->
+    hasLeft: ->
         return if (@left_arr.length == 0) then false else true
 
-    hasRight: () ->
+    hasRight: ->
         return if (@right_arr.length == 0) then false else true
-
-    print: () ->
-        for i in [@left_arr.length - 1..0] by -1
-            if i == 0
-                console.log("-1", @left_arr[i]);
-            else
-                console.log("-" + (i-1), @left_arr[i]);
-
-        console.log('Current', @current)
-
-        for i in [0..@right_arr.length] by 1
-            if @right_arr[i]
-                console.log("+"+ (i + 1), @right_arr[i])

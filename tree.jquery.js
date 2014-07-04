@@ -17,7 +17,7 @@ limitations under the License.
  */
 
 (function() {
-  var $, BorderDropHint, BoxAreasGenerator, DragAndDropBoxHandler, DragAndDropHandler, DragBoxElement, DragElement, DraggingCursor, ElementsRenderer, FolderElement, GhostDropHint, HitAreasGenerator, HorizontalOptions, JqTreeWidget, KeyHandler, MouseWidget, Node, NodeElement, Position, SaveStateHandler, ScrollHandler, SelectNodeHandler, SimpleWidget, VisibleNodeIterator, get_json_stringify_function, html_escape, indexOf, isInt, _indexOf,
+  var $, BaseDragAndDropHandler, BorderDropHint, BoxAreasGenerator, DragAndDropBoxHandler, DragAndDropHandler, DragBoxElement, DragElement, DraggingCursor, ElementsRenderer, FolderElement, GhostDropHint, HitAreasGenerator, HorizontalOptions, JqTreeWidget, KeyHandler, MouseWidget, Node, NodeElement, Position, SaveStateHandler, ScrollHandler, SelectNodeHandler, SimpleWidget, VisibleNodeIterator, get_json_stringify_function, html_escape, indexOf, isInt, _indexOf,
     __slice = [].slice,
     __hasProp = {}.hasOwnProperty,
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
@@ -2282,8 +2282,8 @@ limitations under the License.
 
   })();
 
-  DragAndDropHandler = (function() {
-    function DragAndDropHandler(tree_widget) {
+  BaseDragAndDropHandler = (function() {
+    function BaseDragAndDropHandler(tree_widget) {
       this.tree_widget = tree_widget;
       this.hovered_area = null;
       this.$ghost = null;
@@ -2292,7 +2292,7 @@ limitations under the License.
       this.current_item = null;
     }
 
-    DragAndDropHandler.prototype.mouseCapture = function(position_info) {
+    BaseDragAndDropHandler.prototype.mouseCapture = function(position_info) {
       var $element, node_element;
       $element = $(position_info.target);
       if (!this.mustCaptureElement($element)) {
@@ -2302,23 +2302,122 @@ limitations under the License.
         return null;
       }
       node_element = this.tree_widget._getNodeElement($element);
-      if (node_element && this.tree_widget.options.onCanMove) {
-        if (!this.tree_widget.options.onCanMove(node_element.node)) {
-          node_element = null;
-        }
+      if (node_element && this.tree_widget.options.onCanMove && !this.tree_widget.options.onCanMove(node_element.node)) {
+        node_element = null;
       }
       this.current_item = node_element;
       return this.current_item !== null;
     };
 
-    DragAndDropHandler.prototype.mouseStart = function(position_info) {
-      var offset;
-      this.refresh();
+    BaseDragAndDropHandler.prototype.mustCaptureElement = function($element) {
+      return !$element.is('input,select');
+    };
+
+    BaseDragAndDropHandler.prototype.mouseStart = function(position_info) {
+      var offset, x, y;
       offset = $(position_info.target).offset();
-      this.drag_element = new DragElement(this.current_item.node, position_info.page_x - offset.left, position_info.page_y - offset.top, this.tree_widget.element);
+      x = position_info.page_x - offset.left;
+      y = position_info.page_y - offset.top;
+      this.doMouseStart(x, y);
+      this.refresh();
       this.is_dragging = true;
-      this.current_item.$element.addClass('jqtree-moving');
       return true;
+    };
+
+    BaseDragAndDropHandler.prototype.removeHitAreas = function() {
+      return this.hit_areas = [];
+    };
+
+    BaseDragAndDropHandler.prototype.getTreeDimensions = function() {
+      var offset;
+      offset = this.tree_widget.element.offset();
+      return {
+        left: offset.left,
+        top: offset.top,
+        right: offset.left + this.tree_widget.element.width(),
+        bottom: offset.top + this.tree_widget.element.height() + 16
+      };
+    };
+
+    BaseDragAndDropHandler.prototype.moveItem = function(position_info) {
+      var doMove, event, moved_node, position, previous_parent, target_node;
+      if (this.hovered_area && this.hovered_area.position !== Position.NONE && this.canMoveToArea(this.hovered_area)) {
+        moved_node = this.current_item.node;
+        target_node = this.hovered_area.node;
+        position = this.hovered_area.position;
+        previous_parent = moved_node.parent;
+        if (position === Position.INSIDE) {
+          this.hovered_area.node.is_open = true;
+        }
+        doMove = (function(_this) {
+          return function() {
+            _this.tree_widget.tree.moveNode(moved_node, target_node, position);
+            _this.tree_widget.element.empty();
+            return _this.tree_widget._refreshElements();
+          };
+        })(this);
+        event = this.tree_widget._triggerEvent('tree.move', {
+          move_info: {
+            moved_node: moved_node,
+            target_node: target_node,
+            position: Position.getName(position),
+            previous_parent: previous_parent,
+            do_move: doMove,
+            original_event: position_info.original_event
+          }
+        });
+        if (!event.isDefaultPrevented()) {
+          return doMove();
+        }
+      }
+    };
+
+    BaseDragAndDropHandler.prototype.canMoveToArea = function(area) {
+      var position_name;
+      if (!area) {
+        return false;
+      } else if (this.tree_widget.options.onCanMoveTo) {
+        position_name = Position.getName(area.position);
+        return this.tree_widget.options.onCanMoveTo(this.current_item.node, area.node, position_name);
+      } else {
+        return true;
+      }
+    };
+
+    BaseDragAndDropHandler.prototype.clear = function() {
+      this.drag_element.remove();
+      return this.drag_element = null;
+    };
+
+    BaseDragAndDropHandler.prototype.refresh = function() {
+      this.removeHitAreas();
+      return this.generateHitAreas();
+    };
+
+    BaseDragAndDropHandler.prototype.removeHover = function() {
+      return this.hovered_area = null;
+    };
+
+    BaseDragAndDropHandler.prototype.removeDropHint = function() {
+      if (this.previous_ghost) {
+        return this.previous_ghost.remove();
+      }
+    };
+
+    return BaseDragAndDropHandler;
+
+  })();
+
+  DragAndDropHandler = (function(_super) {
+    __extends(DragAndDropHandler, _super);
+
+    function DragAndDropHandler() {
+      return DragAndDropHandler.__super__.constructor.apply(this, arguments);
+    }
+
+    DragAndDropHandler.prototype.doMouseStart = function(x, y) {
+      this.drag_element = new DragElement(this.current_item.node, x, y, this.tree_widget.element);
+      return this.current_item.$element.addClass('jqtree-moving');
     };
 
     DragAndDropHandler.prototype.mouseDrag = function(position_info) {
@@ -2345,22 +2444,6 @@ limitations under the License.
       return true;
     };
 
-    DragAndDropHandler.prototype.mustCaptureElement = function($element) {
-      return !$element.is('input,select');
-    };
-
-    DragAndDropHandler.prototype.canMoveToArea = function(area) {
-      var position_name;
-      if (!area) {
-        return false;
-      } else if (this.tree_widget.options.onCanMoveTo) {
-        position_name = Position.getName(area.position);
-        return this.tree_widget.options.onCanMoveTo(this.current_item.node, area.node, position_name);
-      } else {
-        return true;
-      }
-    };
-
     DragAndDropHandler.prototype.mouseStop = function(position_info) {
       this.moveItem(position_info);
       this.clear();
@@ -2376,33 +2459,13 @@ limitations under the License.
     };
 
     DragAndDropHandler.prototype.refresh = function() {
-      this.removeHitAreas();
-      this.generateHitAreas();
+      DragAndDropHandler.__super__.refresh.call(this);
       if (this.current_item) {
         this.current_item = this.tree_widget._getNodeElementForNode(this.current_item.node);
         if (this.is_dragging) {
           return this.current_item.$element.addClass('jqtree-moving');
         }
       }
-    };
-
-    DragAndDropHandler.prototype.removeHitAreas = function() {
-      return this.hit_areas = [];
-    };
-
-    DragAndDropHandler.prototype.clear = function() {
-      this.drag_element.remove();
-      return this.drag_element = null;
-    };
-
-    DragAndDropHandler.prototype.removeDropHint = function() {
-      if (this.previous_ghost) {
-        return this.previous_ghost.remove();
-      }
-    };
-
-    DragAndDropHandler.prototype.removeHover = function() {
-      return this.hovered_area = null;
     };
 
     DragAndDropHandler.prototype.generateHitAreas = function() {
@@ -2470,53 +2533,9 @@ limitations under the License.
       }
     };
 
-    DragAndDropHandler.prototype.moveItem = function(position_info) {
-      var doMove, event, moved_node, position, previous_parent, target_node;
-      if (this.hovered_area && this.hovered_area.position !== Position.NONE && this.canMoveToArea(this.hovered_area)) {
-        moved_node = this.current_item.node;
-        target_node = this.hovered_area.node;
-        position = this.hovered_area.position;
-        previous_parent = moved_node.parent;
-        if (position === Position.INSIDE) {
-          this.hovered_area.node.is_open = true;
-        }
-        doMove = (function(_this) {
-          return function() {
-            _this.tree_widget.tree.moveNode(moved_node, target_node, position);
-            _this.tree_widget.element.empty();
-            return _this.tree_widget._refreshElements();
-          };
-        })(this);
-        event = this.tree_widget._triggerEvent('tree.move', {
-          move_info: {
-            moved_node: moved_node,
-            target_node: target_node,
-            position: Position.getName(position),
-            previous_parent: previous_parent,
-            do_move: doMove,
-            original_event: position_info.original_event
-          }
-        });
-        if (!event.isDefaultPrevented()) {
-          return doMove();
-        }
-      }
-    };
-
-    DragAndDropHandler.prototype.getTreeDimensions = function() {
-      var offset;
-      offset = this.tree_widget.element.offset();
-      return {
-        left: offset.left,
-        top: offset.top,
-        right: offset.left + this.tree_widget.element.width(),
-        bottom: offset.top + this.tree_widget.element.height() + 16
-      };
-    };
-
     return DragAndDropHandler;
 
-  })();
+  })(BaseDragAndDropHandler);
 
   VisibleNodeIterator = (function() {
     function VisibleNodeIterator(tree) {
@@ -3077,50 +3096,16 @@ limitations under the License.
     __extends(DragAndDropBoxHandler, _super);
 
     function DragAndDropBoxHandler(tree_widget) {
-      this.tree_widget = tree_widget;
-      this.hovered_area = null;
-      this.$ghost = null;
-      this.hit_areas = [];
-      this.is_dragging = false;
-      this.current_item = null;
+      DragAndDropBoxHandler.__super__.constructor.call(this, tree_widget);
       this.dragging_cursor = null;
       this.previousY = null;
       this.previousX = null;
     }
 
-    DragAndDropBoxHandler.prototype.mouseStart = function(position_info) {
-      var offset;
-      offset = $(position_info.target).offset();
+    DragAndDropBoxHandler.prototype.doMouseStart = function(x, y) {
       this.dragging_cursor = new DraggingCursor(this.current_item, Position.NONE);
-      this.drag_element = new DragBoxElement(this.current_item.$element, position_info.page_x - offset.left, position_info.page_y - offset.top, this.tree_widget.element);
-      this.dragging_cursor.swapGhost();
-      this.refresh();
-      this.is_dragging = true;
-      return true;
-    };
-
-    DragAndDropBoxHandler.prototype.printHitAreas = function() {
-      var hit_area, _i, _len, _ref, _results;
-      _ref = this.hit_areas;
-      _results = [];
-      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-        hit_area = _ref[_i];
-        _results.push(console.log(hit_area.top, hit_area.bottom, hit_area.node.name, this.convertPosition(hit_area.position), hit_area.depth));
-      }
-      return _results;
-    };
-
-    DragAndDropBoxHandler.prototype.convertPosition = function(position) {
-      switch (position) {
-        case 1:
-          return "BEFORE";
-        case 2:
-          return "AFTER";
-        case 3:
-          return "INSIDE";
-        case 4:
-          return "NONE";
-      }
+      this.drag_element = new DragBoxElement(this.current_item.$element, x, y, this.tree_widget.element);
+      return this.dragging_cursor.swapGhost();
     };
 
     DragAndDropBoxHandler.prototype.resetHorizontal = function(current_x) {
@@ -3129,6 +3114,7 @@ limitations under the License.
     };
 
     DragAndDropBoxHandler.prototype.mouseStop = function(position_info) {
+      return;
       if (!this.hovered_area || this.hovered_area.position === Position.NONE) {
         this.dragging_cursor.unSwapGhost();
         this.tree_widget._refreshElements();
@@ -3139,10 +3125,6 @@ limitations under the License.
       this.removeHover();
       this.removeDropHint();
       this.removeHitAreas();
-      if (this.current_item) {
-        this.current_item.$element.removeClass('jqtree-moving');
-        this.current_item = null;
-      }
       this.is_dragging = false;
       return false;
     };
@@ -3296,8 +3278,7 @@ limitations under the License.
     };
 
     DragAndDropBoxHandler.prototype.clear = function() {
-      this.drag_element.remove();
-      this.drag_element = null;
+      DragAndDropBoxHandler.__super__.clear.call(this);
       this.dragging_cursor.remove();
       this.dragging_cursor = null;
       this.previousX = null;
@@ -3380,14 +3361,9 @@ limitations under the License.
       return false;
     };
 
-    DragAndDropBoxHandler.prototype.refresh = function() {
-      this.removeHitAreas();
-      return this.generateHitAreas();
-    };
-
     return DragAndDropBoxHandler;
 
-  })(DragAndDropHandler);
+  })(BaseDragAndDropHandler);
 
   DragAndDropBoxHandler.UP = 1;
 
@@ -3430,23 +3406,9 @@ limitations under the License.
 
     BoxAreasGenerator.prototype.generate = function() {
       var hit_areas;
-      this.positions = [];
-      this.last_top = 0;
-      this.iterate();
-      hit_areas = this.generateHitAreas(this.positions);
+      hit_areas = BoxAreasGenerator.__super__.generate.call(this);
       this.addCursor(hit_areas);
       return hit_areas;
-    };
-
-    BoxAreasGenerator.prototype.addPosition = function(node, position, top) {
-      var area;
-      area = {
-        top: top,
-        node: node,
-        position: position
-      };
-      this.positions.push(area);
-      return this.last_top = top;
     };
 
     BoxAreasGenerator.prototype.handleNode = function(node, next_node, $element) {
@@ -3514,7 +3476,7 @@ limitations under the License.
       this.$element = element.$element;
       this.node = element.node;
       height = this.$element.height();
-      this.$ghost = $('<li style = "height:' + height + 'px;" class="jqtree_common jqtree-ghost"></li>');
+      this.$ghost = $('<li style = "height:' + height + 'px;" class="jqtree_common jqtree-ghost jqtree-box-ghost"></li>');
     }
 
     DraggingCursor.prototype.swapGhost = function() {
@@ -3560,12 +3522,12 @@ limitations under the License.
 
     DraggingCursor.prototype.bump = function() {
       this.bumped = true;
-      return this.$ghost.addClass('bumped');
+      return this.$ghost.addClass('jqtree-bumped');
     };
 
     DraggingCursor.prototype.deBump = function() {
       this.bumped = false;
-      return this.$ghost.removeClass('bumped');
+      return this.$ghost.removeClass('jqtree-bumped');
     };
 
     DraggingCursor.prototype.remove = function() {
@@ -3645,27 +3607,6 @@ limitations under the License.
       } else {
         return true;
       }
-    };
-
-    HorizontalOptions.prototype.print = function() {
-      var i, _i, _j, _ref, _ref1, _results;
-      for (i = _i = _ref = this.left_arr.length - 1; _i >= 0; i = _i += -1) {
-        if (i === 0) {
-          console.log("-1", this.left_arr[i]);
-        } else {
-          console.log("-" + (i - 1), this.left_arr[i]);
-        }
-      }
-      console.log('Current', this.current);
-      _results = [];
-      for (i = _j = 0, _ref1 = this.right_arr.length; _j <= _ref1; i = _j += 1) {
-        if (this.right_arr[i]) {
-          _results.push(console.log("+" + (i + 1), this.right_arr[i]));
-        } else {
-          _results.push(void 0);
-        }
-      }
-      return _results;
     };
 
     return HorizontalOptions;

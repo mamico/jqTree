@@ -1,4 +1,4 @@
-class DragAndDropHandler
+class BaseDragAndDropHandler
     constructor: (tree_widget) ->
         @tree_widget = tree_widget
 
@@ -19,28 +19,108 @@ class DragAndDropHandler
 
         node_element = @tree_widget._getNodeElement($element)
 
-        if node_element and @tree_widget.options.onCanMove
-            if not @tree_widget.options.onCanMove(node_element.node)
-                node_element = null
+        if node_element and @tree_widget.options.onCanMove and not @tree_widget.options.onCanMove(node_element.node)
+            node_element = null
 
         @current_item = node_element
         return (@current_item != null)
 
+    mustCaptureElement: ($element) ->
+        return not $element.is('input,select')
+
     mouseStart: (position_info) ->
+        offset = $(position_info.target).offset()
+        x = position_info.page_x - offset.left
+        y = position_info.page_y - offset.top
+
+        @doMouseStart(x, y)
+
         @refresh()
 
-        offset = $(position_info.target).offset()
+        @is_dragging = true
+        return true
 
+    removeHitAreas: ->
+        @hit_areas = []
+
+    getTreeDimensions: ->
+        # Return the dimensions of the tree. Add a margin to the bottom to allow
+        # for some to drag-and-drop the last element.
+        offset = @tree_widget.element.offset()
+
+        return {
+            left: offset.left,
+            top: offset.top,
+            right: offset.left + @tree_widget.element.width(),
+            bottom: offset.top + @tree_widget.element.height() + 16
+        }
+
+    moveItem: (position_info) ->
+        if (
+            @hovered_area and
+            @hovered_area.position != Position.NONE and
+            @canMoveToArea(@hovered_area)
+        )
+            moved_node = @current_item.node
+            target_node = @hovered_area.node
+            position = @hovered_area.position
+            previous_parent = moved_node.parent
+
+            if position == Position.INSIDE
+                @hovered_area.node.is_open = true
+
+            doMove = =>
+                @tree_widget.tree.moveNode(moved_node, target_node, position)
+                @tree_widget.element.empty()
+                @tree_widget._refreshElements()
+
+            event = @tree_widget._triggerEvent(
+                'tree.move',
+                move_info:
+                    moved_node: moved_node
+                    target_node: target_node
+                    position: Position.getName(position)
+                    previous_parent: previous_parent
+                    do_move: doMove
+                    original_event: position_info.original_event
+            )
+
+            doMove() unless event.isDefaultPrevented()
+
+    canMoveToArea: (area) ->
+        if not area
+            return false
+        else if @tree_widget.options.onCanMoveTo
+            position_name = Position.getName(area.position)
+
+            return @tree_widget.options.onCanMoveTo(@current_item.node, area.node, position_name)
+        else
+            return true
+
+    clear: ->
+        @drag_element.remove()
+        @drag_element = null
+
+    refresh: ->
+        @removeHitAreas()
+        @generateHitAreas()
+
+    removeHover: ->
+        @hovered_area = null
+
+    removeDropHint: ->
+        if @previous_ghost
+            @previous_ghost.remove()
+
+
+class DragAndDropHandler extends BaseDragAndDropHandler
+    doMouseStart: (x, y) ->
         @drag_element = new DragElement(
-            @current_item.node
-            position_info.page_x - offset.left,
-            position_info.page_y - offset.top,
+            @current_item.node,
+            x, y,
             @tree_widget.element
         )
-
-        @is_dragging = true
         @current_item.$element.addClass('jqtree-moving')
-        return true
 
     mouseDrag: (position_info) ->
         @drag_element.move(position_info.page_x, position_info.page_y)
@@ -67,19 +147,6 @@ class DragAndDropHandler
 
         return true
 
-    mustCaptureElement: ($element) ->
-        return not $element.is('input,select')
-
-    canMoveToArea: (area) ->
-        if not area
-            return false
-        else if @tree_widget.options.onCanMoveTo
-            position_name = Position.getName(area.position)
-
-            return @tree_widget.options.onCanMoveTo(@current_item.node, area.node, position_name)
-        else
-            return true
-
     mouseStop: (position_info) ->
         @moveItem(position_info)
         @clear()
@@ -95,28 +162,13 @@ class DragAndDropHandler
         return false
 
     refresh: ->
-        @removeHitAreas()
-        @generateHitAreas()
+        super()
 
         if @current_item
             @current_item = @tree_widget._getNodeElementForNode(@current_item.node)
 
             if @is_dragging
                 @current_item.$element.addClass('jqtree-moving')
-
-    removeHitAreas: ->
-        @hit_areas = []
-
-    clear: ->
-        @drag_element.remove()
-        @drag_element = null
-
-    removeDropHint: ->
-        if @previous_ghost
-            @previous_ghost.remove()
-
-    removeHover: ->
-        @hovered_area = null
 
     generateHitAreas: ->
         hit_areas_generator = new HitAreasGenerator(
@@ -191,50 +243,6 @@ class DragAndDropHandler
             clearTimeout(@open_folder_timer)
             @open_folder_timer = null
 
-    moveItem: (position_info) ->
-        if (
-            @hovered_area and
-            @hovered_area.position != Position.NONE and
-            @canMoveToArea(@hovered_area)
-        )
-            moved_node = @current_item.node
-            target_node = @hovered_area.node
-            position = @hovered_area.position
-            previous_parent = moved_node.parent
-
-            if position == Position.INSIDE
-                @hovered_area.node.is_open = true
-
-            doMove = =>
-                @tree_widget.tree.moveNode(moved_node, target_node, position)
-                @tree_widget.element.empty()
-                @tree_widget._refreshElements()
-
-            event = @tree_widget._triggerEvent(
-                'tree.move',
-                move_info:
-                    moved_node: moved_node
-                    target_node: target_node
-                    position: Position.getName(position)
-                    previous_parent: previous_parent
-                    do_move: doMove
-                    original_event: position_info.original_event
-            )
-
-            doMove() unless event.isDefaultPrevented()
-
-    getTreeDimensions: ->
-        # Return the dimensions of the tree. Add a margin to the bottom to allow
-        # for some to drag-and-drop the last element.
-        offset = @tree_widget.element.offset()
-
-        return {
-            left: offset.left,
-            top: offset.top,
-            right: offset.left + @tree_widget.element.width(),
-            bottom: offset.top + @tree_widget.element.height() + 16
-        }
-
 
 class VisibleNodeIterator
     constructor: (tree) ->
@@ -301,6 +309,7 @@ class VisibleNodeIterator
 class HitAreasGenerator extends VisibleNodeIterator
     constructor: (tree, current_node, tree_bottom, group_size_max) ->
         super(tree)
+
         @group_size_max = group_size_max or 4
         @current_node = current_node
         @tree_bottom = tree_bottom
