@@ -20,7 +20,6 @@ class DragAndDropBoxHandler extends BaseDragAndDropHandler
         @horizontal_options = null
 
     mouseStop: (position_info) ->
-        return
         if !@hovered_area || @hovered_area.position == Position.NONE
             @dragging_cursor.unSwapGhost()
             @tree_widget._refreshElements()
