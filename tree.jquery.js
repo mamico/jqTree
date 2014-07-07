@@ -3114,7 +3114,6 @@ limitations under the License.
     };
 
     DragAndDropBoxHandler.prototype.mouseStop = function(position_info) {
-      return;
       if (!this.hovered_area || this.hovered_area.position === Position.NONE) {
         this.dragging_cursor.unSwapGhost();
         this.tree_widget._refreshElements();
