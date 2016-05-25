@@ -1,5 +1,5 @@
 /*
-JqTree 1.3.0
+JqTree 1.3.2
 
 Copyright 2015 Marco Braak
 
@@ -536,12 +536,12 @@ ElementsRenderer = (function() {
   ElementsRenderer.prototype.renderFromNode = function(node) {
     var $previous_li, li;
     $previous_li = $(node.element);
-    li = this.createLi(node);
+    li = this.createLi(node, node.getLevel());
     this.attachNodeData(node, li);
     $previous_li.after(li);
     $previous_li.remove();
     if (node.children) {
-      return this.createDomElements(li, node.children, false, false, node.getLevel());
+      return this.createDomElements(li, node.children, false, false, node.getLevel() + 1);
     }
   };
 
@@ -1367,6 +1367,9 @@ Node = (function() {
       node = new this.tree.node_class(node_info);
       child_index = this.parent.getChildIndex(this);
       this.parent.addChildAtPosition(node, child_index + 1);
+      if (typeof node_info === 'object' && node_info.children && node_info.children.length) {
+        node.loadFromData(node_info.children);
+      }
       return node;
     }
   };
@@ -1379,6 +1382,9 @@ Node = (function() {
       node = new this.tree.node_class(node_info);
       child_index = this.parent.getChildIndex(this);
       this.parent.addChildAtPosition(node, child_index);
+      if (typeof node_info === 'object' && node_info.children && node_info.children.length) {
+        node.loadFromData(node_info.children);
+      }
       return node;
     }
   };
@@ -1413,6 +1419,9 @@ Node = (function() {
     var node;
     node = new this.tree.node_class(node_info);
     this.addChild(node);
+    if (typeof node_info === 'object' && node_info.children && node_info.children.length) {
+      node.loadFromData(node_info.children);
+    }
     return node;
   };
 
@@ -1420,6 +1429,9 @@ Node = (function() {
     var node;
     node = new this.tree.node_class(node_info);
     this.addChildAtPosition(node, 0);
+    if (typeof node_info === 'object' && node_info.children && node_info.children.length) {
+      node.loadFromData(node_info.children);
+    }
     return node;
   };
 
@@ -2520,7 +2532,8 @@ JqTreeWidget = (function(superClass) {
     rtl: null,
     onDragMove: null,
     onDragStop: null,
-    buttonLeft: true
+    buttonLeft: true,
+    onLoading: null
   };
 
   JqTreeWidget.prototype.toggle = function(node, slide) {
@@ -2657,7 +2670,7 @@ JqTreeWidget = (function(superClass) {
   };
 
   JqTreeWidget.prototype._loadDataFromUrl = function(url_info, parent_node, on_finished) {
-    var $el, addLoadingClass, handeLoadData, loadDataFromUrlInfo, parseUrlInfo, removeLoadingClass;
+    var $el, addLoadingClass, handeLoadData, handleError, handleSuccess, loadDataFromUrlInfo, parseUrlInfo, removeLoadingClass;
     $el = null;
     addLoadingClass = (function(_this) {
       return function() {
@@ -2666,23 +2679,28 @@ JqTreeWidget = (function(superClass) {
         } else {
           $el = _this.element;
         }
-        return $el.addClass('jqtree-loading');
+        $el.addClass('jqtree-loading');
+        return _this._notifyLoading(true, parent_node, $el);
       };
     })(this);
-    removeLoadingClass = function() {
-      if ($el) {
-        return $el.removeClass('jqtree-loading');
-      }
-    };
+    removeLoadingClass = (function(_this) {
+      return function() {
+        if ($el) {
+          $el.removeClass('jqtree-loading');
+          return _this._notifyLoading(false, parent_node, $el);
+        }
+      };
+    })(this);
     parseUrlInfo = function() {
       if ($.type(url_info) === 'string') {
-        url_info = {
+        return {
           url: url_info
         };
       }
       if (!url_info.method) {
-        return url_info.method = 'get';
+        url_info.method = 'get';
       }
+      return url_info;
     };
     handeLoadData = (function(_this) {
       return function(data) {
@@ -2693,38 +2711,40 @@ JqTreeWidget = (function(superClass) {
         }
       };
     })(this);
-    loadDataFromUrlInfo = (function(_this) {
-      return function() {
-        parseUrlInfo();
-        return $.ajax({
-          url: url_info.url,
-          data: url_info.data,
-          type: url_info.method.toUpperCase(),
-          cache: false,
-          dataType: 'json',
-          success: function(response) {
-            var data;
-            if ($.isArray(response) || typeof response === 'object') {
-              data = response;
-            } else if (data != null) {
-              data = $.parseJSON(response);
-            } else {
-              data = [];
-            }
-            if (_this.options.dataFilter) {
-              data = _this.options.dataFilter(data);
-            }
-            return handeLoadData(data);
-          },
-          error: function(response) {
-            removeLoadingClass();
-            if (_this.options.onLoadFailed) {
-              return _this.options.onLoadFailed(response);
-            }
-          }
-        });
+    handleSuccess = (function(_this) {
+      return function(response) {
+        var data;
+        if ($.isArray(response) || typeof response === 'object') {
+          data = response;
+        } else if (data != null) {
+          data = $.parseJSON(response);
+        } else {
+          data = [];
+        }
+        if (_this.options.dataFilter) {
+          data = _this.options.dataFilter(data);
+        }
+        return handeLoadData(data);
       };
     })(this);
+    handleError = (function(_this) {
+      return function(response) {
+        removeLoadingClass();
+        if (_this.options.onLoadFailed) {
+          return _this.options.onLoadFailed(response);
+        }
+      };
+    })(this);
+    loadDataFromUrlInfo = function() {
+      url_info = parseUrlInfo();
+      return $.ajax($.extend({}, url_info, {
+        method: url_info.method != null ? url_info.method.toUpperCase() : 'GET',
+        cache: false,
+        dataType: 'json',
+        success: handleSuccess,
+        error: handleError
+      }));
+    };
     if (!url_info) {
       url_info = this._getDataUrlInfo(parent_node);
     }
@@ -3461,6 +3481,12 @@ JqTreeWidget = (function(superClass) {
     }
   };
 
+  JqTreeWidget.prototype._notifyLoading = function(is_loading, node, $el) {
+    if (this.options.onLoading) {
+      return this.options.onLoading(is_loading, node, $el);
+    }
+  };
+
   return JqTreeWidget;
 
 })(MouseWidget);
@@ -3523,6 +3549,6 @@ module.exports = {
 };
 
 },{}],13:[function(require,module,exports){
-module.exports = '1.3.0';
+module.exports = '1.3.2';
 
 },{}]},{},[11]);

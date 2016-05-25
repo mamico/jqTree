@@ -111,6 +111,8 @@ QUnit.module("jqtree", {
         var $tree = $('#tree1');
         $tree.tree('destroy');
         $tree.remove();
+
+        $.mockjax.clear();
     }
 });
 
@@ -1204,7 +1206,7 @@ test('keyboard', function() {
     equal($tree.tree('getSelectedNode').name, 'node1');
 });
 
-test('getNodesByProperty', function(){
+test('getNodesByProperty', function() {
   // setup
   var $tree = $('#tree1');
     $tree.tree({
@@ -1269,6 +1271,64 @@ test('getNodesByProperty', function(){
         $tree.tree('getNodesByProperty', 'int_property', 444)[0].name,
         'sub2'
     );
+});
+
+test('dataUrl extra options', function() {
+    var $tree = $('#tree1');
+
+    mockjax({
+        url: '*',
+        response: function(options) {
+            // 2. handle ajax request
+            // expect 'headers' option
+            equal(options.url, '/tree2/');
+            deepEqual(options.headers, {'abc': 'def'});
+
+            start();
+        },
+        logging: false
+    });
+
+    // 1. init tree
+    // dataUrl contains 'headers' option
+    $tree.tree({
+        dataUrl: {
+            'url': '/tree2/',
+            'headers': {'abc': 'def'}
+        }
+    });
+
+    stop();
+});
+
+test('dataUrl is function', function() {
+    var $tree = $('#tree1');
+
+    mockjax({
+        url: '*',
+        response: function(options) {
+            // 2. handle ajax request
+            // expect 'headers' option
+            equal(options.url, '/tree3/');
+            deepEqual(options.headers, {'abc': 'def'});
+
+            start();
+        },
+        logging: false
+    });
+
+    // 1. init tree
+    // dataUrl is a function
+    $tree.tree({
+        dataUrl: function(node) {
+            return {
+                'url': '/tree3/',
+                'headers': {'abc': 'def'}
+            };
+        }
+    });
+
+    stop();
 });
 
 QUnit.module("Tree");
@@ -1778,10 +1838,25 @@ test('append', function() {
 
     var node1 = tree.getNodeByName('node1');
 
-    // 1. Add child3 to node1
+    // 1. Append child3 to node1
     node1.append('child3');
 
     equal(formatNodes(node1.children), 'child1 child2 child3');
+
+    // 2. Append subtree
+    node1.append(
+        {
+            name: 'child4',
+            children: [
+                { name: 'child5' }
+            ]
+        }
+    );
+
+    equal(formatNodes(node1.children), 'child1 child2 child3 child4');
+
+    var child4 = node1.getNodeByName('child4');
+    equal(formatNodes(child4.children), 'child5');
 });
 
 test('prepend', function() {
@@ -1795,6 +1870,19 @@ test('prepend', function() {
     node1.prepend('child0');
 
     equal(formatNodes(node1.children), 'child0 child1 child2');
+
+    // 2. Prepend subtree
+    node1.prepend({
+        name: 'child3',
+        children: [
+            { name: 'child4' }
+        ]
+    });
+
+    equal(formatNodes(node1.children), 'child3 child0 child1 child2');
+
+    var child3 = node1.getNodeByName('child3');
+    equal(formatNodes(child3.children), 'child4');
 });
 
 test('getNodeById', function() {

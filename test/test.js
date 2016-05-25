@@ -70,8 +70,15 @@
 		// Test for situations where the data is a querystring (not an object)
 		if (typeof live === 'string') {
 			// Querystring may be a regex
-			return $.isFunction( mock.test ) ? mock.test(live) : mock === live;
+			if ($.isFunction( mock.test )) {
+				return mock.test(live);
+			} else if (typeof mock === 'object') {
+				live = getQueryParams(live);
+			} else {
+				return mock === live;
+			}
 		}
+		
 		$.each(mock, function(k) {
 			if ( live[k] === undefined ) {
 				identical = false;
@@ -93,6 +100,38 @@
 		});
 
 		return identical;
+	}
+	
+	function getQueryParams(queryString) {
+		var i, l, param, tmp,
+			paramsObj = {},
+			params = String(queryString).split(/&/);
+		
+		for (i=0, l=params.length; i<l; ++i) {
+			param = params[i];
+			try {
+				param = decodeURIComponent(param.replace(/\+/g, ' '));
+				param = param.split(/=/);
+			} catch(e) {
+				// Can't parse this one, so let it go?
+				continue;
+			}
+			
+			if (paramsObj[param[0]]) {
+				// this is an array query param (more than one entry in query)
+				if (!paramsObj[param[0]].splice) {
+					// if not already an array, make it one
+					tmp = paramsObj[param[0]];
+					paramsObj[param[0]] = [];
+					paramsObj[param[0]].push(tmp);
+				}
+				paramsObj[param[0]].push(param[1]);
+			} else {
+				paramsObj[param[0]] = param[1];
+			}
+		}
+		
+		return paramsObj;
 	}
 
 	// See if a mock handler property matches the default settings
@@ -156,7 +195,7 @@
 
 		// Inspect the data submitted in the request (either POST body or GET query string)
 		if ( handler.data ) {
-			if ( ! requestSettings.data || !isMockDataEqual(handler.data, requestSettings.data) ) {
+			if ( !requestSettings.data || !isMockDataEqual(handler.data, requestSettings.data) ) {
 				// They're not identical, do not mock this request
 				return null;
 			}
@@ -273,8 +312,11 @@
 				async: requestSettings.async,
 				dataType: requestSettings.dataType === 'script' ? 'text/plain' : requestSettings.dataType,
 				complete: function(xhr) {
-					mockHandler.responseXML = xhr.responseXML;
-					mockHandler.responseText = xhr.responseText;
+					// Fix for bug #105
+					// jQuery will convert the text to XML for us, and if we use the actual responseXML here
+					// then some other things don't happen, resulting in no data given to the 'success' cb
+					mockHandler.responseXML = mockHandler.responseText = xhr.responseText;
+					
 					// Don't override the handler status/statusText if it's specified by the config
 					if (isDefaultSetting(mockHandler, 'status')) {
 						mockHandler.status = xhr.status;
@@ -442,7 +484,10 @@
 			return newMock;
 
 		} else {
-			$.globalEval( '(' + mockHandler.responseText + ')');
+			$.globalEval( '(' + 
+				((typeof mockHandler.responseText === 'string') ? 
+					('"' + mockHandler.responseText + '"') : mockHandler.responseText) +
+			')');
 		}
 
 		completeJsonpCall( requestSettings, mockHandler, callbackContext, newMock );
@@ -472,7 +517,7 @@
 	// Create the required JSONP callback function for the request
 	function createJsonpCallback( requestSettings, mockHandler, origSettings ) {
 		var callbackContext = origSettings && origSettings.context || requestSettings;
-		var jsonp = requestSettings.jsonpCallback || ('jsonp' + jsc++);
+		var jsonp = (typeof requestSettings.jsonpCallback === 'string' && requestSettings.jsonpCallback) || ('jsonp' + jsc++);
 
 		// Replace the =? sequence both in the query string and the data
 		if ( requestSettings.data ) {
@@ -492,8 +537,8 @@
 			try {
 				delete window[ jsonp ];
 			} catch(e) {}
-
 		};
+		requestSettings.jsonpCallback = jsonp;
 	}
 
 	// The JSONP request was successful
@@ -541,7 +586,7 @@
 		} else {
 			// work around to support 1.5 signature
 			origSettings = origSettings || {};
-			origSettings.url = url;
+			origSettings.url = url || origSettings.url;
 		}
 
 		// Extend the original settings for the request
@@ -586,7 +631,11 @@
 				}
 			}
 
-
+            // We are mocking, so there will be no cross domain request, however, jQuery
+            // aggressively pursues this if the domains don't match, so we need to 
+            // explicitly disallow it. (See #136) 
+            origSettings.crossDomain = false;            
+            
 			// Removed to fix #54 - keep the mocking data object intact
 			//mockHandler.data = requestSettings.data;
 
@@ -908,6 +957,8 @@ QUnit.module("jqtree", {
         var $tree = $('#tree1');
         $tree.tree('destroy');
         $tree.remove();
+
+        $.mockjax.clear();
     }
 });
 
@@ -2001,7 +2052,7 @@ test('keyboard', function() {
     equal($tree.tree('getSelectedNode').name, 'node1');
 });
 
-test('getNodesByProperty', function(){
+test('getNodesByProperty', function() {
   // setup
   var $tree = $('#tree1');
     $tree.tree({
@@ -2066,6 +2117,64 @@ test('getNodesByProperty', function(){
         $tree.tree('getNodesByProperty', 'int_property', 444)[0].name,
         'sub2'
     );
+});
+
+test('dataUrl extra options', function() {
+    var $tree = $('#tree1');
+
+    mockjax({
+        url: '*',
+        response: function(options) {
+            // 2. handle ajax request
+            // expect 'headers' option
+            equal(options.url, '/tree2/');
+            deepEqual(options.headers, {'abc': 'def'});
+
+            start();
+        },
+        logging: false
+    });
+
+    // 1. init tree
+    // dataUrl contains 'headers' option
+    $tree.tree({
+        dataUrl: {
+            'url': '/tree2/',
+            'headers': {'abc': 'def'}
+        }
+    });
+
+    stop();
+});
+
+test('dataUrl is function', function() {
+    var $tree = $('#tree1');
+
+    mockjax({
+        url: '*',
+        response: function(options) {
+            // 2. handle ajax request
+            // expect 'headers' option
+            equal(options.url, '/tree3/');
+            deepEqual(options.headers, {'abc': 'def'});
+
+            start();
+        },
+        logging: false
+    });
+
+    // 1. init tree
+    // dataUrl is a function
+    $tree.tree({
+        dataUrl: function(node) {
+            return {
+                'url': '/tree3/',
+                'headers': {'abc': 'def'}
+            };
+        }
+    });
+
+    stop();
 });
 
 QUnit.module("Tree");
@@ -2575,10 +2684,25 @@ test('append', function() {
 
     var node1 = tree.getNodeByName('node1');
 
-    // 1. Add child3 to node1
+    // 1. Append child3 to node1
     node1.append('child3');
 
     equal(formatNodes(node1.children), 'child1 child2 child3');
+
+    // 2. Append subtree
+    node1.append(
+        {
+            name: 'child4',
+            children: [
+                { name: 'child5' }
+            ]
+        }
+    );
+
+    equal(formatNodes(node1.children), 'child1 child2 child3 child4');
+
+    var child4 = node1.getNodeByName('child4');
+    equal(formatNodes(child4.children), 'child5');
 });
 
 test('prepend', function() {
@@ -2592,6 +2716,19 @@ test('prepend', function() {
     node1.prepend('child0');
 
     equal(formatNodes(node1.children), 'child0 child1 child2');
+
+    // 2. Prepend subtree
+    node1.prepend({
+        name: 'child3',
+        children: [
+            { name: 'child4' }
+        ]
+    });
+
+    equal(formatNodes(node1.children), 'child3 child0 child1 child2');
+
+    var child3 = node1.getNodeByName('child3');
+    equal(formatNodes(child3.children), 'child4');
 });
 
 test('getNodeById', function() {

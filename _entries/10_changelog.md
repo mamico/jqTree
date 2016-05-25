@@ -3,6 +3,17 @@ title: Changelog
 name: changelog
 ---
 
+##### development version
+
+* Issue 420: Set the correct aria-level after updating a node (thanks to Fermin Gallego)
+* Issue 426: Make it possible to append a subtree using appendNode
+    * also works for addNodeAfter, addNodeBefore and prependNode
+
+##### 1.3.2 (march 3 2016)
+
+* Issue 412: Set ajax parameters in dataUrl option (thanks to Atul Bajpai)
+* Issue 415: Add onLoading callback parameter
+
 ##### 1.3.0 (november 8 2015)
 
 * Issue 234: Added onDragMove and onDragStop callbacks
